@@ -1,3 +1,7 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Leak Finder</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono&display=swap">
 <style>
@@ -57,17 +61,20 @@
   .leak:last-child { border-bottom: 0; }
   .leak-head { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
   .leak-head .amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .badge { font-size: 11px; font-weight: 600; color: var(--good); border: 1px solid var(--good); border-radius: 999px; padding: 1px 8px; margin-left: 6px; white-space: nowrap; }
+  .of { font-size: 12px; color: var(--muted); }
   .track { height: 8px; background: var(--line); border-radius: 4px; margin: 6px 0; overflow: hidden; }
   .fill { height: 100%; background: var(--bar); border-radius: 4px; transition: width .25s ease; }
   .fix { font-size: 13px; color: var(--muted); }
   .fix b { color: var(--good); font-weight: 600; }
   .math { font-size: 12px; color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
+  #onetime { border-top: 1px solid var(--line); }
   .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
   .note { font-size: 12px; color: var(--muted); margin-top: 14px; }
 </style>
 <main>
   <h1>Leak Finder</h1>
-  <p class="sub">A practice AI Opportunity Roadmap audit: answer a few questions about a business and see roughly where it's losing time and money each month.</p>
+  <p class="sub">A practice worksheet for the AI Opportunity Roadmap audit: answer a few questions about a business and see roughly how much time and money it could win back each month.</p>
 
   <div class="grid">
     <section class="card">
@@ -81,65 +88,87 @@
 
     <section class="card">
       <div class="total">
-        <div class="label">Estimated monthly leak</div>
+        <div class="label">Estimated recoverable per month</div>
         <div class="num" id="total">$0</div>
         <div class="extra" id="extra"></div>
       </div>
       <div id="leaks"></div>
+      <div id="onetime"></div>
       <div class="actions">
         <button class="btn" id="copy">Copy summary for the owner</button>
       </div>
       <pre id="summary-fallback" class="math" hidden style="white-space:pre-wrap;margin-top:12px"></pre>
-      <p class="note">These are rough estimates for starting the conversation, not a promise of results. Check every number with the owner.</p>
+      <p class="note">These are rough estimates for starting the conversation, not a promise of results. Check every number with the owner, and get anything that involves texting customers checked for consent before it is offered.</p>
     </section>
   </div>
 </main>
 
 <script>
-const WEEKS = 4.33;
+const WEEKS = 4.33; // 52 weeks / 12 months
 
-// Owner-facing questions
+// Owner-facing questions. A label can be a function when the wording depends on the preset.
 const inputs = [
-  { id: "jobValue",    label: "Average job / sale value", min: 50, max: 10000, step: 50, fmt: "$" },
+  { id: "jobValue",    label: s => s.valueLabel, min: 50, max: 10000, step: 50, fmt: "$" },
   { id: "missedCalls", label: "Missed calls per week", min: 0, max: 60, step: 1, hint: "Calls that go to voicemail while the team is busy" },
-  { id: "quotes",      label: "Quotes sent per month", min: 0, max: 150, step: 1 },
+  { id: "quotes",      label: s => s.quotesLabel, min: 0, max: 150, step: 1 },
   { id: "appts",       label: "Appointments per week", min: 0, max: 200, step: 1 },
-  { id: "adminHours",  label: "Owner hours/week on invoices, proposals and reports", min: 0, max: 30, step: 1 },
-  { id: "dormant",     label: "Past customers / old leads nobody contacts", min: 0, max: 3000, step: 50 },
+  { id: "apptValue",   label: "Value of one appointment slot", min: 0, max: 2000, step: 10, fmt: "$", hint: "Set to $0 if a no-show doesn't cost a paid slot" },
+  { id: "adminHours",  label: "Owner hours per week on invoices, proposals and reports", min: 0, max: 30, step: 1 },
+  { id: "dormant",     label: "Past customers and old leads nobody contacts", min: 0, max: 3000, step: 50 },
 ];
 
-// Conservative defaults; candidates should tune these with the owner
+// Conservative defaults; candidates should tune these with the owner.
+// Hints say what each default rests on; most public figures are vendor data, so treat them as starting points.
 const assumptions = [
-  { id: "callBookRate", label: "Missed callers who would have booked", min: 0, max: 100, step: 5, fmt: "%", value: 25 },
-  { id: "callRecover",  label: "Of those, won back by a fast text", min: 0, max: 100, step: 5, fmt: "%", value: 30 },
-  { id: "ghostRate",    label: "Quotes that get ghosted", min: 0, max: 100, step: 5, fmt: "%", value: 40 },
-  { id: "ghostRecover", label: "Ghosted quotes recovered by follow-up", min: 0, max: 50, step: 1, fmt: "%", value: 10 },
-  { id: "noShowRate",   label: "No-show / late-cancel rate", min: 0, max: 40, step: 1, fmt: "%", value: 10 },
-  { id: "noShowRecover",label: "No-shows prevented or refilled", min: 0, max: 100, step: 5, fmt: "%", value: 40 },
-  { id: "apptValue",    label: "Value of one appointment slot", min: 0, max: 2000, step: 10, fmt: "$", value: 150 },
-  { id: "hourValue",    label: "What an owner hour is worth", min: 20, max: 300, step: 5, fmt: "$", value: 75 },
-  { id: "adminSaved",   label: "Admin time automation takes back", min: 0, max: 100, step: 5, fmt: "%", value: 60 },
-  { id: "reactRate",    label: "Dormant contacts who rebook (one-time)", min: 0, max: 10, step: 0.5, fmt: "%", value: 2 },
+  { id: "callBookRate", label: "Missed callers who would have booked", min: 0, max: 100, step: 5, fmt: "%", value: 25,
+    hint: "Judgment call: many missed calls are existing customers, vendors or spam" },
+  { id: "callRecover",  label: "Would-be bookers won back by a fast text", min: 0, max: 100, step: 5, fmt: "%", value: 15,
+    hint: "About a third of missed callers reply to a text-back (one vendor's data); fewer go on to book" },
+  { id: "ghostRate",    label: s => `${cap(s.noun)} that go unanswered`, min: 0, max: 100, step: 5, fmt: "%", value: 40,
+    hint: "Ask the owner; published close rates run anywhere from 30% to 70%" },
+  { id: "ghostRecover", label: s => `Unanswered ${s.noun} won by follow-up`, min: 0, max: 50, step: 1, fmt: "%", value: 10 },
+  { id: "noShowRate",   label: "No-show or late-cancel rate", min: 0, max: 40, step: 1, fmt: "%", value: 10,
+    hint: "Dental practices report about 7%; medical clinics average about 23%" },
+  { id: "noShowRecover",label: "No-shows prevented or refilled", min: 0, max: 100, step: 5, fmt: "%", value: 30,
+    hint: "Reminder studies show anything from 8% to 45% fewer no-shows" },
+  { id: "hourValue",    label: "What an hour of the owner's time is worth", min: 20, max: 300, step: 5, fmt: "$", value: 75,
+    hint: "Ask the owner; this is their number, not ours" },
+  { id: "adminSaved",   label: "Share of that admin time automation saves", min: 0, max: 100, step: 5, fmt: "%", value: 40,
+    hint: "Judgment call: the owner still reviews and approves what goes out" },
+  { id: "reactRate",    label: "Dormant contacts who come back (one-time)", min: 0, max: 10, step: 0.5, fmt: "%", value: 2,
+    hint: "Win-back emails typically convert 2% to 5%" },
 ];
 
 const presets = {
-  "HVAC / trades":  { jobValue: 900,  missedCalls: 12, quotes: 40, appts: 25, adminHours: 8,  dormant: 800,  apptValue: 150 },
-  "Dental / clinic":{ jobValue: 350,  missedCalls: 15, quotes: 5,  appts: 90, adminHours: 6,  dormant: 1500, apptValue: 200 },
-  "Real estate agent": { jobValue: 9000, missedCalls: 5, quotes: 4, appts: 6, adminHours: 10, dormant: 600, apptValue: 0 },
-  "Agency / consultant": { jobValue: 4000, missedCalls: 2, quotes: 8, appts: 10, adminHours: 12, dormant: 150, apptValue: 0 },
+  "HVAC / trades": {
+    jobValue: 900, missedCalls: 12, quotes: 40, appts: 25, adminHours: 8, dormant: 800, apptValue: 150,
+    noun: "estimates", quotesLabel: "Estimates sent per month", valueLabel: "Average job value" },
+  "Dental / clinic": {
+    jobValue: 350, missedCalls: 15, quotes: 5, appts: 90, adminHours: 6, dormant: 1500, apptValue: 200,
+    noun: "treatment plans", quotesLabel: "Treatment plans presented per month", valueLabel: "Average treatment value" },
+  "Real estate agent": {
+    jobValue: 9000, missedCalls: 5, quotes: 4, appts: 6, adminHours: 10, dormant: 600, apptValue: 0,
+    noun: "listing presentations", quotesLabel: "Listing presentations per month", valueLabel: "Average commission per closing" },
+  "Agency / consultant": {
+    jobValue: 4000, missedCalls: 2, quotes: 8, appts: 10, adminHours: 12, dormant: 150, apptValue: 0,
+    noun: "proposals", quotesLabel: "Proposals sent per month", valueLabel: "Average project value" },
 };
 
 const state = {};
 [...inputs, ...assumptions].forEach(f => state[f.id] = f.value ?? 0);
 Object.assign(state, presets["HVAC / trades"]);
 
+const cap = t => t[0].toUpperCase() + t.slice(1);
 const money = n => "$" + Math.round(n).toLocaleString();
+// Results are estimates, so show them to two significant figures
+const rough = n => money(Number(n.toPrecision(2)));
 const show = (f, v) => f.fmt === "$" ? money(v) : f.fmt === "%" ? v + "%" : Number(v).toLocaleString();
+const labelOf = f => typeof f.label === "function" ? f.label(state) : f.label;
 
 function renderFields(list, el) {
   el.innerHTML = list.map(f => `
     <div class="field">
-      <label for="${f.id}"><span>${f.label}</span><span id="${f.id}-v"></span></label>
+      <label for="${f.id}"><span id="${f.id}-l"></span><span id="${f.id}-v"></span></label>
       ${f.hint ? `<small>${f.hint}</small>` : ""}
       <input type="range" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step}">
     </div>`).join("");
@@ -152,57 +181,74 @@ function renderFields(list, el) {
 function syncFields() {
   [...inputs, ...assumptions].forEach(f => {
     document.getElementById(f.id).value = state[f.id];
+    document.getElementById(f.id + "-l").textContent = labelOf(f);
     document.getElementById(f.id + "-v").textContent = show(f, state[f.id]);
   });
 }
 
+// lost = what is at stake today; monthly = the part a fix could realistically win back
 function computeLeaks(s) {
   const p = x => x / 100;
+  const calls = s.missedCalls * WEEKS * p(s.callBookRate) * s.jobValue;
+  const quotes = s.quotes * p(s.ghostRate) * s.jobValue;
+  const noShows = s.appts * WEEKS * p(s.noShowRate) * s.apptValue;
+  const admin = s.adminHours * WEEKS * s.hourValue;
   return [
     { name: "Missed calls going to competitors",
-      monthly: s.missedCalls * WEEKS * p(s.callBookRate) * p(s.callRecover) * s.jobValue,
-      math: `${s.missedCalls}/wk × ${WEEKS} × ${s.callBookRate}% × ${s.callRecover}% × ${money(s.jobValue)}`,
+      lost: calls, monthly: calls * p(s.callRecover), ofWhat: "in jobs those callers would have booked",
+      math: `${s.missedCalls} calls/wk × ${WEEKS} wks/mo × ${s.callBookRate}% would book × ${money(s.jobValue)} × ${s.callRecover}% won back`,
       fix: "Missed-call text-back", pitch: "A missed call gets a text back in under a minute." },
-    { name: "Quotes sent, then ghosted",
-      monthly: s.quotes * p(s.ghostRate) * p(s.ghostRecover) * s.jobValue,
-      math: `${s.quotes}/mo × ${s.ghostRate}% × ${s.ghostRecover}% × ${money(s.jobValue)}`,
-      fix: "Quote follow-up", pitch: "The quotes that get sent and then ghosted get chased." },
+    { name: `${cap(s.noun)} that went quiet`,
+      lost: quotes, monthly: quotes * p(s.ghostRecover), ofWhat: `in unanswered ${s.noun}`,
+      math: `${s.quotes}/mo × ${s.ghostRate}% unanswered × ${money(s.jobValue)} × ${s.ghostRecover}% won by follow-up`,
+      fix: `Follow-up on unanswered ${s.noun}`, pitch: "The quotes that get sent and then ghosted get chased." },
     { name: "No-shows and empty slots",
-      monthly: s.appts * WEEKS * p(s.noShowRate) * p(s.noShowRecover) * s.apptValue,
-      math: `${s.appts}/wk × ${WEEKS} × ${s.noShowRate}% × ${s.noShowRecover}% × ${money(s.apptValue)}`,
-      fix: "Reminders + waitlist fill", pitch: "Fewer no-shows, and empty slots get filled." },
-    { name: "Owner time lost to office work",
-      monthly: s.adminHours * WEEKS * p(s.adminSaved) * s.hourValue,
-      math: `${s.adminHours} hrs/wk × ${WEEKS} × ${s.adminSaved}% × ${money(s.hourValue)}/hr`,
-      fix: "Admin automation", pitch: "Invoices, proposals and the weekly numbers take care of themselves." },
-  ].sort((a, b) => b.monthly - a.monthly);
+      lost: noShows, monthly: noShows * p(s.noShowRecover), ofWhat: "in no-shows and late cancels",
+      math: `${s.appts} appts/wk × ${WEEKS} wks/mo × ${s.noShowRate}% no-show × ${money(s.apptValue)} × ${s.noShowRecover}% prevented or refilled`,
+      fix: "Reminders and a waitlist", pitch: "Fewer no-shows, and empty slots get filled." },
+    { name: "Owner time lost to invoices, proposals and reports",
+      lost: admin, monthly: admin * p(s.adminSaved), ofWhat: "of owner time",
+      math: `${s.adminHours} hrs/wk × ${WEEKS} wks/mo × ${money(s.hourValue)}/hr × ${s.adminSaved}% saved`,
+      fix: "Admin automation", pitch: "Invoices and proposals get drafted for the owner to approve, and the weekly numbers show up on their own." },
+  ].filter(l => l.monthly > 0).sort((a, b) => b.monthly - a.monthly);
 }
 
 function update() {
   syncFields();
   const leaks = computeLeaks(state);
   const total = leaks.reduce((t, l) => t + l.monthly, 0);
+  const atStake = leaks.reduce((t, l) => t + l.lost, 0);
   const oneTime = state.dormant * (state.reactRate / 100) * state.jobValue;
   const max = Math.max(...leaks.map(l => l.monthly), 1);
 
-  document.getElementById("total").textContent = money(total);
-  document.getElementById("extra").textContent =
-    `≈ ${money(total * 12)} a year, plus about ${money(oneTime)} one-time from waking up the dormant list.`;
+  document.getElementById("total").textContent = rough(total);
+  document.getElementById("extra").textContent = total > 0
+    ? `About ${rough(total * 12)} a year, out of roughly ${rough(atStake)}/mo at stake today.`
+    : "Move the sliders to match the business.";
 
-  document.getElementById("leaks").innerHTML = leaks.map(l => `
+  document.getElementById("leaks").innerHTML = leaks.map((l, i) => `
     <div class="leak">
-      <div class="leak-head"><span>${l.name}</span><span class="amt">${money(l.monthly)}/mo</span></div>
+      <div class="leak-head"><span>${l.name}${i === 0 ? ` <span class="badge">Start here</span>` : ""}</span><span class="amt">${rough(l.monthly)}/mo</span></div>
+      <div class="of">recoverable, out of about ${rough(l.lost)}/mo ${l.ofWhat}</div>
       <div class="track"><div class="fill" style="width:${(l.monthly / max) * 100}%"></div></div>
-      <div class="fix">Fix: <b>${l.fix}</b> | "${l.pitch}"</div>
+      <div class="fix">Fix: <b>${l.fix}.</b> ${l.pitch}</div>
       <div class="math">${l.math}</div>
     </div>`).join("");
 
-  window._summary = [
-    `Quick look at where the business may be leaking (rough estimates):`,
-    ...leaks.filter(l => l.monthly > 0).map(l => `• ${l.name}: ~${money(l.monthly)}/mo. ${l.pitch}`),
-    `Total: ~${money(total)}/month (~${money(total * 12)}/year), plus ~${money(oneTime)} one-time from re-engaging past customers.`,
-    `Next step: a free AI Opportunity Roadmap to confirm these numbers together.`,
-  ].join("\n");
+  document.getElementById("onetime").innerHTML = oneTime > 0 ? `
+    <div class="leak">
+      <div class="leak-head"><span>Past customers and old leads nobody contacts</span><span class="amt">${rough(oneTime)} one-time</span></div>
+      <div class="fix">Fix: <b>Reactivation.</b> The hundreds of old contacts they never touch get woken up. Email first; texts only to people who opted in.</div>
+      <div class="math">${state.dormant.toLocaleString()} contacts × ${state.reactRate}% come back × ${money(state.jobValue)}</div>
+    </div>` : "";
+
+  window._summary = total > 0 ? [
+    `Quick look at where your business may be leaking time and money (rough estimates, to confirm with you):`,
+    ...leaks.map((l, i) => `${i === 0 ? "Start here: " : "• "}${l.name}: about ${rough(l.monthly)}/mo recoverable. The fix: ${l.pitch}`),
+    `Total: about ${rough(total)}/mo recoverable (about ${rough(total * 12)} a year)` +
+      (oneTime > 0 ? `, plus about ${rough(oneTime)} one-time from reaching back out to past customers and old leads.` : `.`),
+    `Next step: a free AI Opportunity Roadmap to confirm these numbers together: rgsandco.com/audit`,
+  ].join("\n") : "No leaks estimated yet.";
 }
 
 document.getElementById("presets").innerHTML =
@@ -213,17 +259,20 @@ document.getElementById("presets").addEventListener("click", e => {
 });
 
 document.getElementById("copy").addEventListener("click", async e => {
+  let wait = 1500;
   try { await navigator.clipboard.writeText(window._summary); e.target.textContent = "Copied ✓"; }
   catch {
     const pre = document.getElementById("summary-fallback");
     pre.textContent = window._summary; pre.hidden = false;
     getSelection().selectAllChildren(pre);
-    e.target.textContent = "Selected below, press Copy";
+    e.target.textContent = "Selected below. Press ⌘C or Ctrl+C";
+    wait = 6000;
   }
-  setTimeout(() => e.target.textContent = "Copy summary for the owner", 1500);
+  setTimeout(() => e.target.textContent = "Copy summary for the owner", wait);
 });
 
 renderFields(inputs, document.getElementById("inputs"));
 renderFields(assumptions, document.getElementById("assumptions"));
 update();
 </script>
+</html>
