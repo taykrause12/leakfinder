@@ -3,16 +3,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Leak Finder</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono&display=swap">
+<meta name="description" content="A quick estimate of the money and time a small business loses each month to missed calls, unanswered quotes, no-shows and paperwork.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3C16 3 6 15 6 21a10 10 0 0 0 20 0C26 15 16 3 16 3z' fill='%230e6e8c'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;600&display=swap">
 <style>
-  /* Layout: two-panel audit worksheet, questions left, leak readout right; stacks on phones */
+  /* Layout: two-panel audit worksheet, questions left, estimate right; stacks on phones with a sticky total bar */
   :root {
-    --bg: #eef2f3; --card: #ffffff; --ink: #14212a; --muted: #5a6a73;
-    --line: #d8e0e3; --accent: #0e6e8c; --accent-soft: #dcecf1; --good: #1d7a4a;
+    --bg: #eef2f3; --card: #ffffff; --ink: #14212a; --muted: #4f5e66;
+    --line: #d8e0e3; --accent: #0b6280; --accent-soft: #dcecf1; --good: #1d7a4a;
     --bar: #1590b5;
     --display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
     --body: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
-    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -33,72 +34,118 @@
   }
   main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 64px; }
   .grid > * { min-width: 0; }
-  h1 { font-family: var(--display); font-size: 32px; margin: 0 0 4px; letter-spacing: -0.02em; }
-  .sub { max-width: 65ch; }
+  .eyebrow { font-size: 13px; font-weight: 600; color: var(--accent); margin: 0 0 4px; letter-spacing: .02em; }
+  h1 { font-family: var(--display); font-size: 32px; line-height: 1.15; margin: 0 0 8px; letter-spacing: -0.02em; }
+  h2 { font-family: var(--display); font-size: 18px; margin: 0 0 12px; letter-spacing: -0.01em; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .sub { color: var(--muted); margin: 0 0 24px; }
+  .sub { color: var(--muted); margin: 0 0 12px; max-width: 65ch; }
+  .steps { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0 0 24px; padding: 0; list-style: none; counter-reset: step; font-size: 14px; }
+  .steps li { counter-increment: step; display: flex; align-items: center; gap: 8px; }
+  .steps li::before {
+    content: counter(step); display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 12px;
+  }
   .grid { display: grid; grid-template-columns: 1fr 1.1fr; gap: 20px; align-items: start; }
   @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
-  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
   .presets button, .btn {
-    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+    font: inherit; font-size: 13px; padding: 6px 12px; min-height: 36px; border-radius: 999px; cursor: pointer;
     border: 1px solid var(--line); background: transparent; color: var(--ink);
   }
+  @media (pointer: coarse) { .presets button, .btn { min-height: 44px; } }
   .presets button:hover, .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .presets button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .link-btn { font: inherit; font-size: 13px; color: var(--muted); background: none; border: 0; padding: 8px 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; margin-bottom: 8px; }
+  .link-btn:hover { color: var(--accent); }
   .field { margin-bottom: 14px; }
-  .field label { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
-  .field label span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .field-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px; }
+  .numwrap { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .numwrap input {
+    font: inherit; font-weight: 600; width: 7ch; padding: 3px 6px; text-align: right; border-radius: 6px;
+    border: 1px solid var(--line); background: transparent; color: var(--ink); font-variant-numeric: tabular-nums;
+  }
+  .numwrap input:focus { border-color: var(--accent); outline: none; }
+  .numwrap input { width: 8.5ch; -moz-appearance: textfield; appearance: textfield; }
+  .numwrap input::-webkit-inner-spin-button, .numwrap input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .field small { color: var(--muted); display: block; font-size: 12px; }
-  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=range] { width: 100%; height: 28px; margin: 2px 0 0; accent-color: var(--accent); cursor: pointer; }
   details { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
-  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 6px 0; }
   .total { background: var(--accent-soft); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+  @media (min-width: 821px) { .total { position: sticky; top: 12px; z-index: 2; } }
   .total .label { font-size: 13px; color: var(--muted); }
-  .total .num { font-family: var(--display); font-size: 40px; font-weight: 700; letter-spacing: -0.02em; color: var(--accent); font-variant-numeric: tabular-nums; }
-  .total .extra { font-size: 13px; color: var(--muted); }
+  .total .num { font-family: var(--display); font-size: 40px; font-weight: 700; letter-spacing: -0.02em; color: var(--accent); font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .total .time { font-weight: 600; font-size: 14px; }
+  .total .extra { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .stickybar { display: none; }
+  @media (max-width: 820px) {
+    .stickybar {
+      display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; position: sticky; top: 0; z-index: 5;
+      margin: 0 -16px 16px; padding: 10px 16px; background: var(--card); border-bottom: 1px solid var(--line); font-size: 13px;
+    }
+    .stickybar b { font-family: var(--display); font-size: 22px; color: var(--accent); font-variant-numeric: tabular-nums; }
+    .stickybar span { color: var(--muted); }
+  }
   .leak { padding: 12px 0; border-bottom: 1px solid var(--line); }
   .leak:last-child { border-bottom: 0; }
   .leak-head { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
   .leak-head .amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .badge { font-size: 11px; font-weight: 600; color: var(--good); border: 1px solid var(--good); border-radius: 999px; padding: 1px 8px; margin-left: 6px; white-space: nowrap; }
-  .of { font-size: 12px; color: var(--muted); }
+  .leak.na .leak-head, .leak.na .of { color: var(--muted); font-weight: 400; }
+  .badge { font-size: 12px; font-weight: 600; color: var(--good); border: 1px solid var(--good); border-radius: 999px; padding: 0 8px; margin-left: 6px; white-space: nowrap; }
+  .of { font-size: 13px; color: var(--muted); }
   .track { height: 8px; background: var(--line); border-radius: 4px; margin: 6px 0; overflow: hidden; }
   .fill { height: 100%; background: var(--bar); border-radius: 4px; transition: width .25s ease; }
+  @media (prefers-reduced-motion: reduce) { .fill { transition: none; } }
   .fix { font-size: 13px; color: var(--muted); }
   .fix b { color: var(--good); font-weight: 600; }
-  .math { font-size: 12px; color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
+  .words { font-size: 13px; margin-top: 4px; }
   #onetime { border-top: 1px solid var(--line); }
   .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  #summary-fallback { font: 13px/1.5 var(--body); color: var(--ink); white-space: pre-wrap; margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
   .note { font-size: 12px; color: var(--muted); margin-top: 14px; }
 </style>
 <main>
-  <h1>Leak Finder</h1>
-  <p class="sub">A practice worksheet for the AI Opportunity Roadmap audit: answer a few questions about a business and see roughly how much time and money it could win back each month.</p>
+  <div class="stickybar" aria-hidden="true"><span>Win back each month</span><b id="sb-money">$0</b><span id="sb-time"></span></div>
+  <p class="eyebrow">Leak Finder</p>
+  <h1>How much is slipping through the cracks?</h1>
+  <p class="sub">A quick estimate of the money and time a small business loses each month to missed calls, unanswered quotes, no-shows and paperwork, and how much of it could be won back.</p>
+  <ol class="steps">
+    <li>Pick the business type.</li>
+    <li>Adjust the numbers to match.</li>
+    <li>See the estimate.</li>
+  </ol>
+  <noscript><p class="card">This calculator needs JavaScript turned on.</p></noscript>
 
   <div class="grid">
-    <section class="card">
-      <div class="presets" id="presets"></div>
+    <section class="card" aria-labelledby="numbers-h">
+      <h2 id="numbers-h">Your numbers</h2>
+      <div class="presets" id="presets" role="group" aria-label="Business type"></div>
+      <button type="button" class="link-btn" id="reset">Reset to typical numbers</button>
       <div id="inputs"></div>
       <details>
-        <summary>Assumptions (edit to match the owner's reality)</summary>
+        <summary>Our assumptions (change any that don't fit)</summary>
         <div id="assumptions" style="margin-top:12px"></div>
       </details>
     </section>
 
-    <section class="card">
+    <section class="card" aria-labelledby="estimate-h">
+      <h2 id="estimate-h">The estimate</h2>
       <div class="total">
-        <div class="label">Estimated recoverable per month</div>
-        <div class="num" id="total">$0</div>
+        <div class="label">What you could win back each month</div>
+        <div aria-live="polite" aria-atomic="true">
+          <div class="num" id="total">$0</div>
+          <div class="time" id="time"></div>
+        </div>
         <div class="extra" id="extra"></div>
       </div>
       <div id="leaks"></div>
       <div id="onetime"></div>
       <div class="actions">
-        <button class="btn" id="copy">Copy summary for the owner</button>
+        <button type="button" class="btn" id="copy">Copy summary for the owner</button>
       </div>
-      <pre id="summary-fallback" class="math" hidden style="white-space:pre-wrap;margin-top:12px"></pre>
-      <p class="note">These are rough estimates for starting the conversation, not a promise of results. Check every number with the owner, and get anything that involves texting customers checked for consent before it is offered.</p>
+      <pre id="summary-fallback" hidden></pre>
+      <p class="note">Based on the numbers above and cautious assumptions you can change. Real results depend on your business. Anything that involves texting customers needs a consent check before it's offered.</p>
     </section>
   </div>
 </main>
@@ -106,171 +153,297 @@
 <script>
 const WEEKS = 4.33; // 52 weeks / 12 months
 
-// Owner-facing questions. A label can be a function when the wording depends on the preset.
+// Wording that changes with the business type; set by applyPreset()
+let w = {};
+
+// Owner-facing questions. label/hint can be functions when the wording depends on the preset.
 const inputs = [
-  { id: "jobValue",    label: s => s.valueLabel, min: 50, max: 10000, step: 50, fmt: "$" },
-  { id: "missedCalls", label: "Missed calls per week", min: 0, max: 60, step: 1, hint: "Calls that go to voicemail while the team is busy" },
-  { id: "quotes",      label: s => s.quotesLabel, min: 0, max: 150, step: 1 },
-  { id: "appts",       label: "Appointments per week", min: 0, max: 200, step: 1 },
-  { id: "apptValue",   label: "Value of one appointment slot", min: 0, max: 2000, step: 10, fmt: "$", hint: "Set to $0 if a no-show doesn't cost a paid slot" },
-  { id: "adminHours",  label: "Owner hours per week on invoices, proposals and reports", min: 0, max: 30, step: 1 },
-  { id: "dormant",     label: "Past customers and old leads nobody contacts", min: 0, max: 3000, step: 50 },
+  { id: "jobValue",    label: () => w.valueLabel, hint: () => w.valueHint, min: 50, max: 10000, step: 50, fmt: "$" },
+  { id: "missedCalls", label: "How many calls go unanswered each week?", hint: "Calls that ring out or hit voicemail while everyone's busy.", min: 0, max: 60, step: 1, unit: "calls a week" },
+  { id: "quotes",      label: () => w.quotesLabel, hint: () => `Count every one sent, whether it was answered or not.`, min: 0, max: 150, step: 1, unit: "a month" },
+  { id: "appts",       label: "How many appointments are booked each week?", min: 0, max: 200, step: 1, unit: "a week" },
+  { id: "apptValue",   label: "What does an empty appointment slot cost?", hint: "What you'd normally earn in that slot. Leave at $0 if no-shows don't cost you.", min: 0, max: 2000, step: 10, fmt: "$" },
+  { id: "adminHours",  label: "How many hours a week does the owner spend on paperwork?", hint: "Invoices, quotes and reports.", min: 0, max: 30, step: 1, unit: "hours a week" },
+  { id: "dormant",     label: "How many past customers haven't heard from you in a year?", hint: "Include old leads who never booked.", min: 0, max: 3000, step: 50, unit: "contacts" },
 ];
 
-// Conservative defaults; candidates should tune these with the owner.
+// Cautious defaults; candidates should tune these with the owner.
 // Hints say what each default rests on; most public figures are vendor data, so treat them as starting points.
 const assumptions = [
   { id: "callBookRate", label: "Missed callers who would have booked", min: 0, max: 100, step: 5, fmt: "%", value: 25,
-    hint: "Judgment call: many missed calls are existing customers, vendors or spam" },
-  { id: "callRecover",  label: "Would-be bookers won back by a fast text", min: 0, max: 100, step: 5, fmt: "%", value: 15,
-    hint: "About a third of missed callers reply to a text-back (one vendor's data); fewer go on to book" },
-  { id: "ghostRate",    label: s => `${cap(s.noun)} that go unanswered`, min: 0, max: 100, step: 5, fmt: "%", value: 40,
-    hint: "Ask the owner; published close rates run anywhere from 30% to 70%" },
-  { id: "ghostRecover", label: s => `Unanswered ${s.noun} won by follow-up`, min: 0, max: 50, step: 1, fmt: "%", value: 10 },
-  { id: "noShowRate",   label: "No-show or late-cancel rate", min: 0, max: 40, step: 1, fmt: "%", value: 10,
-    hint: "Dental practices report about 7%; medical clinics average about 23%" },
-  { id: "noShowRecover",label: "No-shows prevented or refilled", min: 0, max: 100, step: 5, fmt: "%", value: 30,
-    hint: "Reminder studies show anything from 8% to 45% fewer no-shows" },
+    hint: "A judgment call: many missed calls are existing customers, vendors or spam." },
+  { id: "callRecover",  label: "Would-be bookers won back by a fast text", min: 0, max: 50, step: 5, fmt: "%", value: 15,
+    hint: "About a third of missed callers reply to a text-back (one vendor's data); fewer go on to book." },
+  { id: "closeRate",    label: () => `Booked leads that turn into ${w.job[1]}`, min: 0, max: 100, step: 5, fmt: "%", value: 100,
+    hint: "Close to 100% for service calls; much lower when one sale is a big commission or project." },
+  { id: "ghostRate",    label: () => `${cap(w.noun)} that never get an answer`, min: 0, max: 100, step: 5, fmt: "%", value: 40,
+    hint: "Ask the owner; published close rates run anywhere from 30% to 70%." },
+  { id: "ghostRecover", label: () => `Unanswered ${w.noun} won by following up`, min: 0, max: 50, step: 1, fmt: "%", value: 10 },
+  { id: "noShowRate",   label: "Appointments that no-show or cancel late", min: 0, max: 40, step: 1, fmt: "%", value: 10,
+    hint: "Dental practices report about 7%; medical clinics average about 23%." },
+  { id: "noShowRecover",label: "No-shows prevented or refilled", min: 0, max: 60, step: 5, fmt: "%", value: 30,
+    hint: "Reminder studies show anything from 8% to 45% fewer no-shows." },
   { id: "hourValue",    label: "What an hour of the owner's time is worth", min: 20, max: 300, step: 5, fmt: "$", value: 75,
-    hint: "Ask the owner; this is their number, not ours" },
-  { id: "adminSaved",   label: "Share of that admin time automation saves", min: 0, max: 100, step: 5, fmt: "%", value: 40,
-    hint: "Judgment call: the owner still reviews and approves what goes out" },
-  { id: "reactRate",    label: "Dormant contacts who come back (one-time)", min: 0, max: 10, step: 0.5, fmt: "%", value: 2,
-    hint: "Win-back emails typically convert 2% to 5%" },
+    hint: "Ask the owner; this is their number, not ours." },
+  { id: "adminSaved",   label: "Share of paperwork time automation saves", min: 0, max: 80, step: 5, fmt: "%", value: 40,
+    hint: "A judgment call: the owner still reviews and approves what goes out." },
+  { id: "reactRate",    label: "Past contacts who come back", min: 0, max: 10, step: 0.5, fmt: "%", value: 2,
+    hint: "Win-back emails typically convert 2% to 5%." },
 ];
 
+// Each preset fully resets every number: its own values, plus any assumption it overrides
 const presets = {
   "HVAC / trades": {
-    jobValue: 900, missedCalls: 12, quotes: 40, appts: 25, adminHours: 8, dormant: 800, apptValue: 150,
-    noun: "estimates", quotesLabel: "Estimates sent per month", valueLabel: "Average job value" },
+    values: { jobValue: 900, missedCalls: 12, quotes: 40, appts: 25, apptValue: 150, adminHours: 8, dormant: 800 },
+    assume: {},
+    words: { noun: "estimates", job: ["job", "jobs"], quotesLabel: "How many estimates go out each month?",
+             valueLabel: "What's a typical job worth?", valueHint: "The average amount one customer pays for one job." } },
   "Dental / clinic": {
-    jobValue: 350, missedCalls: 15, quotes: 5, appts: 90, adminHours: 6, dormant: 1500, apptValue: 200,
-    noun: "treatment plans", quotesLabel: "Treatment plans presented per month", valueLabel: "Average treatment value" },
+    values: { jobValue: 350, missedCalls: 15, quotes: 5, appts: 90, apptValue: 200, adminHours: 6, dormant: 1500 },
+    assume: { noShowRate: 7 },
+    words: { noun: "treatment plans", job: ["treatment", "treatments"], quotesLabel: "How many treatment plans are presented each month?",
+             valueLabel: "What's a typical treatment worth?", valueHint: "The average amount one patient pays for one treatment." } },
   "Real estate agent": {
-    jobValue: 9000, missedCalls: 5, quotes: 4, appts: 6, adminHours: 10, dormant: 600, apptValue: 0,
-    noun: "listing presentations", quotesLabel: "Listing presentations per month", valueLabel: "Average commission per closing" },
+    values: { jobValue: 9000, missedCalls: 5, quotes: 2, appts: 6, apptValue: 0, adminHours: 10, dormant: 600 },
+    assume: { closeRate: 5 },
+    words: { noun: "listing presentations", job: ["closing", "closings"], quotesLabel: "How many listing presentations do you give each month?",
+             valueLabel: "What's your typical commission per closing?", valueHint: "Your take-home commission on one closed sale." } },
   "Agency / consultant": {
-    jobValue: 4000, missedCalls: 2, quotes: 8, appts: 10, adminHours: 12, dormant: 150, apptValue: 0,
-    noun: "proposals", quotesLabel: "Proposals sent per month", valueLabel: "Average project value" },
+    values: { jobValue: 4000, missedCalls: 2, quotes: 8, appts: 10, apptValue: 0, adminHours: 12, dormant: 150 },
+    assume: { closeRate: 20 },
+    words: { noun: "proposals", job: ["project", "projects"], quotesLabel: "How many proposals go out each month?",
+             valueLabel: "What's a typical project worth?", valueHint: "The average amount one client pays for one project." } },
 };
 
-const state = {};
-[...inputs, ...assumptions].forEach(f => state[f.id] = f.value ?? 0);
-Object.assign(state, presets["HVAC / trades"]);
+const allFields = [...inputs, ...assumptions];
+let state = {};
+let current = "HVAC / trades";
+
+function applyPreset(name) {
+  const p = presets[name];
+  current = name;
+  w = p.words;
+  state = {};
+  allFields.forEach(f => state[f.id] = f.value ?? 0);
+  Object.assign(state, p.values, p.assume);
+}
 
 const cap = t => t[0].toUpperCase() + t.slice(1);
-const money = n => "$" + Math.round(n).toLocaleString();
+const money = n => "$" + Math.round(n).toLocaleString("en-US");
 // Results are estimates, so show them to two significant figures
 const rough = n => money(Number(n.toPrecision(2)));
-const show = (f, v) => f.fmt === "$" ? money(v) : f.fmt === "%" ? v + "%" : Number(v).toLocaleString();
-const labelOf = f => typeof f.label === "function" ? f.label(state) : f.label;
+const whole = n => Math.round(n).toLocaleString("en-US");
+const about = n => n < 0.5 ? "fewer than 1" : "about " + whole(n);
+// Like about(), but keeps a decimal for small counts so chained numbers visibly add up (1.6 × $900 ≈ $1,400)
+const fine = n => n < 10 && Math.abs(n - Math.round(n)) > 0.15 ? n.toFixed(1) : whole(n);
+const plural = (n, [one, many]) => Math.round(n) === 1 ? one : many;
+const verb = (n, one, many) => n >= 0.5 && Math.round(n) === 1 ? one : many;
+// "about 2 jobs × $900 ≈ $1,800 a month", or for rare wins "about 1 closing every 1.5 years ($9,000 each), or about $370 a month on average"
+function outcome(n, nouns, value) {
+  if (n >= 0.75) {
+    const count = fine(n);
+    return `about ${count} ${count === "1" ? nouns[0] : nouns[1]} × ${money(value)} ≈ ${rough(n * value)} a month`;
+  }
+  const months = 1 / n;
+  const every = months < 18 ? `${Math.round(months)} months` : `${+(months / 12).toFixed(months < 36 ? 1 : 0)} years`;
+  return `about 1 ${nouns[0]} every ${every} (${money(value)} each), or about ${rough(n * value)} a month on average`;
+}
+const text = v => typeof v === "function" ? v() : v;
+const show = (f, v) => f.fmt === "$" ? money(v) : f.fmt === "%" ? v + "%" : whole(v);
+const spoken = (f, v) => show(f, v) + (f.unit ? " " + f.unit : "");
+// Typed values may go past the slider's max for counts and money; percentages stay within the slider's range
+const numMax = f => f.fmt === "%" ? f.max : Infinity;
 
 function renderFields(list, el) {
   el.innerHTML = list.map(f => `
     <div class="field">
-      <label for="${f.id}"><span id="${f.id}-l"></span><span id="${f.id}-v"></span></label>
-      ${f.hint ? `<small>${f.hint}</small>` : ""}
-      <input type="range" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step}">
+      <div class="field-head">
+        <label for="${f.id}" id="${f.id}-l"></label>
+        <span class="numwrap">${f.fmt === "$" ? "$" : ""}<input type="number" id="${f.id}-n" inputmode="decimal"
+          min="${f.min}" step="any" aria-labelledby="${f.id}-l">${f.fmt === "%" ? "%" : ""}</span>
+      </div>
+      ${f.hint ? `<small id="${f.id}-h"></small>` : ""}
+      <input type="range" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step}"${f.hint ? ` aria-describedby="${f.id}-h"` : ""}>
     </div>`).join("");
   list.forEach(f => {
-    const input = document.getElementById(f.id);
-    input.addEventListener("input", () => { state[f.id] = +input.value; update(); });
+    const slider = document.getElementById(f.id);
+    const num = document.getElementById(f.id + "-n");
+    slider.addEventListener("input", () => { state[f.id] = +slider.value; update(); });
+    num.addEventListener("input", () => {
+      const v = parseFloat(num.value);
+      if (Number.isNaN(v)) return;
+      state[f.id] = Math.min(Math.max(v, f.min), numMax(f));
+      update(num);
+    });
+    num.addEventListener("change", () => update());
   });
 }
 
-function syncFields() {
-  [...inputs, ...assumptions].forEach(f => {
-    document.getElementById(f.id).value = state[f.id];
-    document.getElementById(f.id + "-l").textContent = labelOf(f);
-    document.getElementById(f.id + "-v").textContent = show(f, state[f.id]);
+function syncFields(typing) {
+  allFields.forEach(f => {
+    const v = state[f.id];
+    const slider = document.getElementById(f.id);
+    slider.value = v;
+    slider.setAttribute("aria-valuetext", spoken(f, v));
+    document.getElementById(f.id + "-l").textContent = text(f.label);
+    if (f.hint) document.getElementById(f.id + "-h").textContent = text(f.hint);
+    const num = document.getElementById(f.id + "-n");
+    if (num !== typing) num.value = Math.round(v * 100) / 100;
   });
+  document.querySelectorAll("#presets button").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === current));
 }
 
-// lost = what is at stake today; monthly = the part a fix could realistically win back
-function computeLeaks(s) {
+// Rows stay in this fixed order. win = what a fix could take back; lost = what is slipping away today.
+function computeRows(s) {
   const p = x => x / 100;
-  const calls = s.missedCalls * WEEKS * p(s.callBookRate) * s.jobValue;
-  const quotes = s.quotes * p(s.ghostRate) * s.jobValue;
-  const noShows = s.appts * WEEKS * p(s.noShowRate) * s.apptValue;
-  const admin = s.adminHours * WEEKS * s.hourValue;
+  const close = p(s.closeRate);
+  const closeClause = s.closeRate < 100 ? `, and ${s.closeRate}% of those turn into ${w.job[1]}` : "";
+
+  const callsMo = s.missedCalls * WEEKS;
+  const booked = callsMo * p(s.callBookRate);
+  const textedBack = booked * p(s.callRecover);
+  const callJobs = textedBack * close;
+
+  const unanswered = s.quotes * p(s.ghostRate);
+  const quoteJobs = unanswered * p(s.ghostRecover);
+
+  const apptsMo = s.appts * WEEKS;
+  const noShows = apptsMo * p(s.noShowRate);
+  const saved = noShows * p(s.noShowRecover);
+
+  const hrsMo = s.adminHours * WEEKS;
+  const hrsBack = hrsMo * p(s.adminSaved);
+
   return [
-    { name: "Missed calls going to competitors",
-      lost: calls, monthly: calls * p(s.callRecover), ofWhat: "in jobs those callers would have booked",
-      math: `${s.missedCalls} calls/wk × ${WEEKS} wks/mo × ${s.callBookRate}% would book × ${money(s.jobValue)} × ${s.callRecover}% won back`,
+    { name: "Missed calls going to competitors", kind: "money",
+      win: callJobs * s.jobValue, lost: booked * close * s.jobValue, ofWhat: `in ${w.job[1]} those callers would have booked`,
+      words: `${s.missedCalls} missed calls a week is about ${whole(callsMo)} a month. ${cap(about(booked))} of those callers would have booked. ` +
+        `A fast text back wins back ${textedBack < 0.5 ? "fewer than 1" : "about " + fine(textedBack)} of them${closeClause}: ${outcome(callJobs, w.job, s.jobValue)}.`,
       fix: "Missed-call text-back", pitch: "A missed call gets a text back in under a minute." },
-    { name: `${cap(s.noun)} that went quiet`,
-      lost: quotes, monthly: quotes * p(s.ghostRecover), ofWhat: `in unanswered ${s.noun}`,
-      math: `${s.quotes}/mo × ${s.ghostRate}% unanswered × ${money(s.jobValue)} × ${s.ghostRecover}% won by follow-up`,
-      fix: `Follow-up on unanswered ${s.noun}`, pitch: "The quotes that get sent and then ghosted get chased." },
-    { name: "No-shows and empty slots",
-      lost: noShows, monthly: noShows * p(s.noShowRecover), ofWhat: "in no-shows and late cancels",
-      math: `${s.appts} appts/wk × ${WEEKS} wks/mo × ${s.noShowRate}% no-show × ${money(s.apptValue)} × ${s.noShowRecover}% prevented or refilled`,
+    { name: `${cap(w.noun)} that never got an answer`, kind: "money",
+      win: quoteJobs * s.jobValue, lost: unanswered * s.jobValue, ofWhat: `in unanswered ${w.noun}`,
+      words: `${whole(s.quotes)} ${w.noun} a month, and ${about(unanswered)} ${verb(unanswered, "never gets", "never get")} an answer. ` +
+        `Following up wins some back: ${outcome(quoteJobs, w.job, s.jobValue)}.`,
+      fix: `Follow-up on unanswered ${w.noun}`, pitch: "The quotes that get sent and then ghosted get chased." },
+    { name: "No-shows and empty slots", kind: "money",
+      win: saved * s.apptValue, lost: noShows * s.apptValue, ofWhat: "in no-shows and late cancels",
+      words: `About ${whole(apptsMo)} appointments a month, and ${about(noShows)} ${verb(noShows, "doesn't", "don't")} show. ` +
+        `Reminders and a waitlist save ${outcome(saved, ["slot", "slots"], s.apptValue)}.`,
       fix: "Reminders and a waitlist", pitch: "Fewer no-shows, and empty slots get filled." },
-    { name: "Owner time lost to invoices, proposals and reports",
-      lost: admin, monthly: admin * p(s.adminSaved), ofWhat: "of owner time",
-      math: `${s.adminHours} hrs/wk × ${WEEKS} wks/mo × ${money(s.hourValue)}/hr × ${s.adminSaved}% saved`,
+    { name: "Owner time on paperwork", kind: "time",
+      hours: hrsBack, hoursMo: hrsMo, win: hrsBack * s.hourValue,
+      words: `${whole(s.adminHours)} hours a week is about ${whole(hrsMo)} hours a month. ` +
+        `Automation can take back around ${whole(hrsBack)} of them, worth about ${rough(hrsBack * s.hourValue)} at ${money(s.hourValue)} an hour.`,
       fix: "Admin automation", pitch: "Invoices and proposals get drafted for the owner to approve, and the weekly numbers show up on their own." },
-  ].filter(l => l.monthly > 0).sort((a, b) => b.monthly - a.monthly);
+  ].map(r => ({ ...r, applies: r.kind === "time" ? r.hours >= 0.5 : r.win >= 1 }));
 }
 
-function update() {
-  syncFields();
-  const leaks = computeLeaks(state);
-  const total = leaks.reduce((t, l) => t + l.monthly, 0);
-  const atStake = leaks.reduce((t, l) => t + l.lost, 0);
-  const oneTime = state.dormant * (state.reactRate / 100) * state.jobValue;
-  const max = Math.max(...leaks.map(l => l.monthly), 1);
+function rowHTML(r, best, max) {
+  if (!r.applies) return `
+    <div class="leak na">
+      <div class="leak-head"><span>${r.name}</span><span class="amt">—</span></div>
+      <div class="of">Doesn't apply with these numbers.</div>
+    </div>`;
+  const amt = r.kind === "time" ? `${whole(r.hours)} hrs/mo` : `${rough(r.win)}/mo`;
+  const of = r.kind === "time"
+    ? `back, out of about ${whole(r.hoursMo)} hours a month on paperwork`
+    : `recoverable, out of about ${rough(r.lost)}/mo ${r.ofWhat}`;
+  return `
+    <div class="leak">
+      <div class="leak-head"><span>${r.name}${r === best ? ` <span class="badge">Best place to start</span>` : ""}</span><span class="amt">${amt}</span></div>
+      <div class="of">${of}</div>
+      <div class="track"><div class="fill" style="width:${(r.win / max) * 100}%"></div></div>
+      <div class="fix">Fix: <b>${r.fix}.</b> ${r.pitch}</div>
+      <div class="words">${r.words}</div>
+    </div>`;
+}
 
+const copyBtn = document.getElementById("copy");
+const fallback = document.getElementById("summary-fallback");
+const COPY_LABEL = "Copy summary for the owner";
+let copyTimer;
+
+function update(typing) {
+  syncFields(typing);
+  const s = state;
+  const rows = computeRows(s);
+  const live = rows.filter(r => r.applies);
+  const moneyRows = live.filter(r => r.kind === "money");
+  const time = live.find(r => r.kind === "time");
+  const total = moneyRows.reduce((t, r) => t + r.win, 0);
+  const best = live.reduce((b, r) => (!b || r.win > b.win ? r : b), null);
+  const max = Math.max(...live.map(r => r.win), 1);
+
+  const returning = s.dormant * (s.reactRate / 100);
+  const oneJobs = returning * (s.closeRate / 100);
+  const oneTime = oneJobs * s.jobValue;
+
+  const timeText = time ? `+ about ${whole(time.hours)} hours of the owner's time a month (worth about ${rough(time.win)})` : "";
   document.getElementById("total").textContent = rough(total);
-  document.getElementById("extra").textContent = total > 0
-    ? `About ${rough(total * 12)} a year, out of roughly ${rough(atStake)}/mo at stake today.`
-    : "Move the sliders to match the business.";
+  document.getElementById("time").textContent = timeText;
+  document.getElementById("sb-money").textContent = rough(total);
+  document.getElementById("sb-time").textContent = time ? `+ ${whole(time.hours)} hrs of owner time` : "";
+  document.getElementById("extra").textContent = live.length
+    ? `About ${rough(total * 12)} a year. A conservative estimate from your numbers. We'd confirm each one with you before promising anything.`
+    : "Move the numbers to match the business.";
 
-  document.getElementById("leaks").innerHTML = leaks.map((l, i) => `
-    <div class="leak">
-      <div class="leak-head"><span>${l.name}${i === 0 ? ` <span class="badge">Start here</span>` : ""}</span><span class="amt">${rough(l.monthly)}/mo</span></div>
-      <div class="of">recoverable, out of about ${rough(l.lost)}/mo ${l.ofWhat}</div>
-      <div class="track"><div class="fill" style="width:${(l.monthly / max) * 100}%"></div></div>
-      <div class="fix">Fix: <b>${l.fix}.</b> ${l.pitch}</div>
-      <div class="math">${l.math}</div>
-    </div>`).join("");
+  document.getElementById("leaks").innerHTML = rows.map(r => rowHTML(r, best, max)).join("");
 
-  document.getElementById("onetime").innerHTML = oneTime > 0 ? `
+  const closeClause = s.closeRate < 100 ? ` and ${s.closeRate}% of those turn into ${w.job[1]}` : "";
+  document.getElementById("onetime").innerHTML = oneTime >= 1 ? `
     <div class="leak">
-      <div class="leak-head"><span>Past customers and old leads nobody contacts</span><span class="amt">${rough(oneTime)} one-time</span></div>
+      <div class="leak-head"><span>One-time boost from reaching out to past customers</span><span class="amt">${rough(oneTime)} once</span></div>
       <div class="fix">Fix: <b>Reactivation.</b> The hundreds of old contacts they never touch get woken up. Email first; texts only to people who opted in.</div>
-      <div class="math">${state.dormant.toLocaleString()} contacts × ${state.reactRate}% come back × ${money(state.jobValue)}</div>
+      <div class="words">${whole(s.dormant)} past contacts. If ${s.reactRate}% come back${closeClause}, that's ${oneJobs >= 0.75
+        ? `${about(oneJobs)} ${plural(oneJobs, w.job)} × ${money(s.jobValue)} ≈ ${rough(oneTime)}, once`
+        : `about a ${Math.round(oneJobs * 100)}% chance of one ${w.job[0]} (${money(s.jobValue)}), worth about ${rough(oneTime)} on average`}.</div>
     </div>` : "";
 
-  window._summary = total > 0 ? [
-    `Quick look at where your business may be leaking time and money (rough estimates, to confirm with you):`,
-    ...leaks.map((l, i) => `${i === 0 ? "Start here: " : "• "}${l.name}: about ${rough(l.monthly)}/mo recoverable. The fix: ${l.pitch}`),
-    `Total: about ${rough(total)}/mo recoverable (about ${rough(total * 12)} a year)` +
-      (oneTime > 0 ? `, plus about ${rough(oneTime)} one-time from reaching back out to past customers and old leads.` : `.`),
-    `Next step: a free AI Opportunity Roadmap to confirm these numbers together: rgsandco.com/audit`,
-  ].join("\n") : "No leaks estimated yet.";
+  const extras = [
+    time ? `about ${whole(time.hours)} hours of your time a month` : "",
+    oneTime >= 1 ? `about ${rough(oneTime)} one-time from reaching out to past customers` : "",
+  ].filter(Boolean);
+  window._summary = live.length || oneTime >= 1 ? [
+    `Here's a rough look at what your business could win back each month:`,
+    ...live.map(r => `${r === best ? "Best place to start: " : "• "}${r.name}: ` +
+      (r.kind === "time" ? `about ${whole(r.hours)} hours a month back.` : `about ${rough(r.win)}/mo.`) + ` The fix: ${r.pitch}`),
+    `Total: about ${rough(total)}/mo (about ${rough(total * 12)} a year)` + (extras.length ? `, plus ${extras.join(", and ")}.` : "."),
+    `These are estimates from the numbers we went through together, using cautious assumptions.`,
+    `Want to check these numbers together? It's free: rgsandco.com/audit`,
+  ].join("\n") : "No estimate yet: the numbers are all zero.";
+
+  // The user has acted since the last copy attempt: keep any shown summary current and restore the button
+  if (!fallback.hidden) fallback.textContent = window._summary;
+  clearTimeout(copyTimer);
+  copyBtn.textContent = COPY_LABEL;
 }
 
 document.getElementById("presets").innerHTML =
-  Object.keys(presets).map(k => `<button data-k="${k}">${k}</button>`).join("");
+  Object.keys(presets).map(k => `<button type="button" data-k="${k}" aria-pressed="false">${k}</button>`).join("");
 document.getElementById("presets").addEventListener("click", e => {
-  const k = e.target.dataset.k;
-  if (k) { Object.assign(state, presets[k]); update(); }
+  const k = e.target.closest("button")?.dataset.k;
+  if (k) { applyPreset(k); update(); }
 });
+document.getElementById("reset").addEventListener("click", () => { applyPreset(current); update(); });
 
-document.getElementById("copy").addEventListener("click", async e => {
-  let wait = 1500;
-  try { await navigator.clipboard.writeText(window._summary); e.target.textContent = "Copied ✓"; }
-  catch {
-    const pre = document.getElementById("summary-fallback");
-    pre.textContent = window._summary; pre.hidden = false;
-    getSelection().selectAllChildren(pre);
-    e.target.textContent = "Selected below. Press ⌘C or Ctrl+C";
-    wait = 6000;
+copyBtn.addEventListener("click", async () => {
+  clearTimeout(copyTimer);
+  try {
+    await navigator.clipboard.writeText(window._summary);
+    fallback.hidden = true;
+    copyBtn.textContent = "Copied ✓";
+    copyTimer = setTimeout(() => copyBtn.textContent = COPY_LABEL, 2000);
+  } catch {
+    // Clipboard blocked: show the text selected and leave the instructions up until the user does something else
+    fallback.textContent = window._summary; fallback.hidden = false;
+    getSelection().selectAllChildren(fallback);
+    copyBtn.textContent = matchMedia("(pointer: coarse)").matches
+      ? "Selected below. Press and hold it, then tap Copy"
+      : "Selected below. Press ⌘C or Ctrl+C";
   }
-  setTimeout(() => e.target.textContent = "Copy summary for the owner", wait);
 });
 
+applyPreset(current);
 renderFields(inputs, document.getElementById("inputs"));
 renderFields(assumptions, document.getElementById("assumptions"));
 update();
